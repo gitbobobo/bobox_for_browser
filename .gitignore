@@ -1,0 +1,8 @@
+node_modules
+dist
+.wxt
+*.log
+.DS_Store
+.playwright-mcp/
+stats*.html
+*.stats.json
