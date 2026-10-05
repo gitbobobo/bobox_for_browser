@@ -34,6 +34,7 @@ pnpm verify:x       # 构建 + 对真实 x.com 跑端到端验证
 - 目标：x.com 的视频/GIF 不自动加载也不自动播放，点击后正常播放，省流量。
 - 只拦截 `play()` 没用：X 的 hls.js 在 `video.play()` 被拒后仍会把整个视频缓冲完（实测一条 90 秒视频约 12MB 照下）。真正有效的是**推迟 `video.src` 赋值**——hls.js 把 MediaSource blob URL 设到 `src` 时先扣住，hls.js 只会预取一个分片；用户点击后再补设。
 - 解锁条件：`pointerdown/pointerup` 坐标落在该 video 的 rect 内，或 `Enter`/空格的焦点元素的 rect 完整落在该 video 的 rect 内（2px 容差，1 秒手势窗口）。防 X 的 j/k 键盘导航或点到别处误解锁。
+- 扣住 `src` 时，在播放器上覆盖“点击加载并播放”按钮，避免 X 一直显示加载中。真实点击或 Enter/空格直接补设 `src` 并调用原生 `play()`，不依赖 X 再调用 `play()`；首次播放动作由扩展消费，防止 X 的点击处理器把刚开始的视频又暂停。
 - MAIN world 脚本在 `document_start` 同步打补丁（`HTMLVideoElement.prototype` 上 shadow `src`/`play`/`setAttribute`/`removeAttribute`）；ISOLATED 的 bridge 读 storage，用 `CustomEvent` 握手（main 发 request、bridge 发 state，先后加载都覆盖）。
 - 另一安全网：捕获阶段监听 `play` 事件，无手势就 `pause()`（覆盖 `autoplay` 属性和原生控件路径）。
 - `pnpm verify:x` 打真实 x.com（未登录态）：HLS 视频 blocked 场景应 ≤4 个 `.m4s` / <512KB，关闭后恢复 X 默认（≥10 个 / >2MB）；另含 GIF 场景（`tweet_video` 直链 mp4，blocked 时 0 请求，点击后加载播放），URL 可用 `X_VERIFY_URL` / `X_VERIFY_GIF_URL` 覆盖。

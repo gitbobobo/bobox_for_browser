@@ -1,3 +1,5 @@
+import { createPlayOverlay } from './play-overlay';
+
 export const GESTURE_WINDOW_MS = 1000;
 
 export interface AutoplayBlockerOptions {
@@ -35,11 +37,30 @@ export function installAutoplayBlocker(
 
   const pending = new WeakMap<HTMLVideoElement, string>();
   const activated = new WeakSet<HTMLVideoElement>();
+  const overlays = new WeakMap<HTMLVideoElement, HTMLButtonElement>();
   let enabled = true;
   let lastGesture: Gesture | null = null;
 
   const shouldDefer = (v: HTMLVideoElement) => enabled && !activated.has(v);
+  const removeOverlay = (v: HTMLVideoElement) => {
+    overlays.get(v)?.remove();
+    overlays.delete(v);
+  };
+  const showOverlay = (v: HTMLVideoElement) => {
+    if (!v.isConnected || !shouldDefer(v) || !pending.has(v)) return;
+    const host = v.closest('[data-testid="videoComponent"]') ?? v.parentElement;
+    if (!host || overlays.get(v)?.parentElement === host) return;
+    removeOverlay(v);
+    const button = createPlayOverlay(v);
+    overlays.set(v, button);
+    host.append(button);
+  };
+  const defer = (v: HTMLVideoElement, value: string) => {
+    pending.set(v, value);
+    showOverlay(v);
+  };
   const flush = (v: HTMLVideoElement) => {
+    removeOverlay(v);
     const value = pending.get(v);
     if (value === undefined) return;
     pending.delete(v);
@@ -56,10 +77,12 @@ export function installAutoplayBlocker(
       const k = e as KeyboardEvent;
       if (k.key !== 'Enter' && k.key !== ' ') return;
       lastGesture = { kind: 'key', target: k.target, at };
+      // Start directly, even if X waits for loadedmetadata before calling play().
+      activateFromGesture(e);
     }
   };
   for (const type of ['pointerdown', 'pointerup', 'keydown']) {
-    win.addEventListener(type, onGesture, { capture: true, passive: true });
+    win.addEventListener(type, onGesture, { capture: true, passive: type !== 'keydown' });
   }
 
   const pointInRect = (r: DOMRect, x: number, y: number) =>
@@ -83,6 +106,29 @@ export function installAutoplayBlocker(
     );
   };
 
+  const activateFromGesture = (e: Event) => {
+    if (!enabled || !isTrustedGesture(e)) return;
+    for (const v of win.document.querySelectorAll('video')) {
+      if (!shouldDefer(v) || !pending.has(v)) continue;
+      const ownsTarget = e.target instanceof win.Node && overlays.get(v)?.contains(e.target);
+      if (!ownsTarget && !gestureMatches(v)) continue;
+      // Consume the first play action so X cannot toggle the newly started
+      // video back to paused in its own click handler.
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      activated.add(v);
+      flush(v);
+      void Reflect.apply(origPlay, v, []).catch(() => {
+        // X may replace the source during loading, aborting this play request.
+        // The video remains authorized for its subsequent play attempts.
+      });
+      break;
+    }
+  };
+  win.addEventListener('click', (e) => {
+    if (e.button === 0) activateFromGesture(e);
+  }, { capture: true });
+
   Reflect.defineProperty(videoProto, 'src', {
     configurable: true,
     enumerable: srcDesc.enumerable,
@@ -92,10 +138,11 @@ export function installAutoplayBlocker(
     },
     set(this: HTMLVideoElement, v: string) {
       if (v && shouldDefer(this)) {
-        pending.set(this, String(v));
+        defer(this, String(v));
         return;
       }
       pending.delete(this);
+      removeOverlay(this);
       Reflect.apply(srcDesc.set!, this, [v]);
     },
   });
@@ -111,15 +158,21 @@ export function installAutoplayBlocker(
   defineOverride('setAttribute', function (this: HTMLVideoElement, name: string, value: string) {
     const lower = String(name).toLowerCase();
     if (lower === 'src' && value && shouldDefer(this)) {
-      pending.set(this, String(value));
+      defer(this, String(value));
       return;
     }
-    if (lower === 'src') pending.delete(this);
+    if (lower === 'src') {
+      pending.delete(this);
+      removeOverlay(this);
+    }
     return Reflect.apply(origSetAttribute, this, [name, value]);
   });
 
   defineOverride('removeAttribute', function (this: HTMLVideoElement, name: string) {
-    if (String(name).toLowerCase() === 'src') pending.delete(this);
+    if (String(name).toLowerCase() === 'src') {
+      pending.delete(this);
+      removeOverlay(this);
+    }
     return Reflect.apply(origRemoveAttribute, this, [name]);
   });
 
@@ -138,18 +191,31 @@ export function installAutoplayBlocker(
     if (!shouldDefer(v)) return;
     const value = Reflect.apply(origGetAttribute, v, ['src']);
     if (!value) return;
-    pending.set(v, value);
+    defer(v, value);
     Reflect.apply(origRemoveAttribute, v, ['src']);
   };
   const scan = (node: Node) => {
-    if (node instanceof win.HTMLVideoElement) stripMarkupSrc(node);
-    else if (node instanceof win.Element) {
-      for (const v of node.querySelectorAll('video')) stripMarkupSrc(v);
+    if (node instanceof win.HTMLVideoElement) {
+      stripMarkupSrc(node);
+      showOverlay(node);
+    } else if (node instanceof win.Element) {
+      for (const v of node.querySelectorAll('video')) {
+        stripMarkupSrc(v);
+        showOverlay(v);
+      }
     }
   };
   new win.MutationObserver((records) => {
     if (!enabled) return;
-    for (const r of records) for (const n of r.addedNodes) scan(n);
+    for (const r of records) {
+      for (const n of r.removedNodes) {
+        if (n instanceof win.HTMLVideoElement) removeOverlay(n);
+        else if (n instanceof win.Element) {
+          for (const v of n.querySelectorAll('video')) removeOverlay(v);
+        }
+      }
+      for (const n of r.addedNodes) scan(n);
+    }
   }).observe(win.document, { childList: true, subtree: true });
 
   // Covers autoplay through the `autoplay` attribute or native controls,

@@ -54,6 +54,10 @@ async function disableCache(page) {
   const cdp = await context.newCDPSession(page);
   await cdp.send('Network.enable');
   await cdp.send('Network.setCacheDisabled', { cacheDisabled: true });
+  // X unloads/pauses videos in inactive tabs. Keep the fixture active even
+  // when the popup is rendered in another tab or Edge is being inspected.
+  // A real action popup also leaves its underlying page visible.
+  await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true });
 }
 
 function trackVideoRequests(page, bucket) {
@@ -126,22 +130,20 @@ async function main() {
     check('video element exists', !!st);
     check('video src attribute is empty', st && st.src === null, `src=${st?.src}`);
     check('video paused', st && st.paused === true);
+    check('click-to-play overlay visible', await page.getByTestId('bobox-play-video').first().isVisible());
     check('<=4 .m4s requests', m4s(req).length <= 4, `${m4s(req).length} requests`);
     check('<512 KB downloaded', kb(req) < 512, `${kb(req)} KB`);
     results.push(['enabled: blocked', m4s(req).length, kb(req)]);
 
     const before = req.length;
-    const box = await page.evaluate(() => {
-      const r = document.querySelector('video').getBoundingClientRect();
-      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-    });
-    await page.mouse.click(box.x, box.y);
+    await page.getByTestId('bobox-play-video').first().click();
     await until(
       async () => (await videoState(page))?.src?.startsWith('blob:'),
       10000,
       'video src to become blob: after click',
     );
     check('click attaches blob: src', true);
+    check('click removes overlay', await page.getByTestId('bobox-play-video').count() === 0);
     await until(() => m4s(req.slice(before)).length >= 3, 10000, '>=3 new .m4s after click');
     check('segments download after click', true, `${m4s(req.slice(before)).length} new .m4s`);
     const canPlay = await page.evaluate(() =>
@@ -178,11 +180,8 @@ async function main() {
     check('gif src attribute is empty', st && st.src === null, `src=${st?.src}`);
     check('zero tweet_video requests', gifReq().length === 0, `${gifReq().length} requests`);
 
-    const box = await page.evaluate(() => {
-      const r = document.querySelector('video').getBoundingClientRect();
-      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-    });
-    await page.mouse.click(box.x, box.y);
+    check('gif click-to-play overlay visible', await page.getByTestId('bobox-play-video').first().isVisible());
+    await page.getByTestId('bobox-play-video').first().click();
     await until(
       async () => (await videoState(page))?.src?.includes('.mp4'),
       10000,
@@ -216,6 +215,8 @@ async function main() {
     const req = [];
     trackVideoRequests(page, req);
     await waitBlockedPost(page, 3);
+    // A video element alone does not mean hls.js has assigned its source yet.
+    await page.getByTestId('bobox-play-video').first().waitFor({ state: 'visible', timeout: 30000 });
     const st = await videoState(page);
     check('fresh post still blocked', st && st.src === null, `src=${st?.src}`);
 
@@ -237,6 +238,7 @@ async function main() {
     const before = req.length;
     await until(() => m4s(req.slice(before)).length >= 1, 10000, 'segments after toggle off');
     check('toggle off flushes src and loads', true, `${m4s(req.slice(before)).length} new .m4s`);
+    check('toggle off removes overlay', await page.getByTestId('bobox-play-video').count() === 0);
     results.push(['toggled off live', m4s(req).length, kb(req)]);
     await popup.close();
     await page.close();
@@ -249,7 +251,19 @@ async function main() {
     await disableCache(page);
     const req = [];
     trackVideoRequests(page, req);
-    await waitBlockedPost(page, 15);
+    await waitBlockedPost(page, 0);
+    await until(
+      async () => (await videoState(page))?.src?.startsWith('blob:'),
+      30000,
+      'default player to attach its video source',
+    );
+    // X adapts the bitrate to network conditions; wait for the original
+    // traffic thresholds rather than assuming 15 seconds always exceeds 2 MB.
+    await until(
+      () => m4s(req).length >= 10 && kb(req) > 2048,
+      45000,
+      'default autoplay to download >=10 segments and >2 MB',
+    );
     check('>=10 .m4s requests', m4s(req).length >= 10, `${m4s(req).length} requests`);
     check('>2 MB downloaded', kb(req) > 2048, `${kb(req)} KB`);
     const canPlay = await page.evaluate(() =>

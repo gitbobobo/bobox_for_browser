@@ -46,6 +46,15 @@ function pointer(win: Win, x: number, y: number) {
   win.dispatchEvent(e);
 }
 
+function click(win: Win, target: Element, x = 100, y = 100) {
+  for (const type of ['pointerdown', 'pointerup']) {
+    target.dispatchEvent(new win.PointerEvent(type, { clientX: x, clientY: y, bubbles: true }));
+  }
+  target.dispatchEvent(new win.MouseEvent('click', {
+    clientX: x, clientY: y, bubbles: true, cancelable: true,
+  }));
+}
+
 function key(win: Win, keyName: string, target: Element) {
   const e = new win.KeyboardEvent('keydown', { key: keyName, bubbles: true });
   target.dispatchEvent(e);
@@ -125,6 +134,109 @@ describe('installAutoplayBlocker', () => {
     pointer(win, 400, 400);
     await expect(v.play()).rejects.toMatchObject({ name: 'NotAllowedError' });
     expect(playCalls).toHaveLength(0);
+  });
+
+  it('a click starts deferred media without any play call from X and consumes the toggle', async () => {
+    const { win, playCalls, srcAtPlay } = makeWindow();
+    stubNow(win);
+    installAutoplayBlocker(win, opts);
+    const v = makeVideo(win);
+    setRect(v, VIDEO_RECT);
+    v.src = 'blob:deferred';
+    const button = win.document.querySelector<HTMLButtonElement>('[data-testid="bobox-play-video"]')!;
+    expect(button.textContent).toContain('点击加载并播放');
+    const siteClick = vi.fn();
+    button.addEventListener('click', siteClick);
+    click(win, button);
+    expect(srcAtPlay).toEqual(['blob:deferred']);
+    expect(playCalls).toEqual([v]);
+    expect(siteClick).not.toHaveBeenCalled();
+    expect(button.isConnected).toBe(false);
+    // Loading can take longer than the gesture window; the actual click
+    // permanently authorizes this element's later playback.
+    nowValue += GESTURE_WINDOW_MS + 1;
+    await v.play();
+    expect(playCalls).toEqual([v, v]);
+  });
+
+  it('clicking a loading mask also starts only the video under the pointer', () => {
+    const { win, playCalls } = makeWindow();
+    installAutoplayBlocker(win, opts);
+    const first = makeVideo(win);
+    const second = makeVideo(win);
+    setRect(first, VIDEO_RECT);
+    setRect(second, { left: 400, top: 0, right: 700, bottom: 200 });
+    first.src = 'blob:first';
+    second.src = 'blob:second';
+    // The event target can be X's overlay rather than the video or our button.
+    const mask = win.document.createElement('div');
+    win.document.body.append(mask);
+    click(win, mask);
+    expect(playCalls).toEqual([first]);
+    expect(second.getAttribute('src')).toBeNull();
+  });
+
+  it('clicks elsewhere and untrusted clicks cannot release a source', () => {
+    const { win, playCalls } = makeWindow();
+    installAutoplayBlocker(win);
+    const v = makeVideo(win);
+    setRect(v, VIDEO_RECT);
+    v.src = 'blob:held';
+    const button = win.document.querySelector('[data-testid="bobox-play-video"]')!;
+    click(win, button);
+    expect(playCalls).toEqual([]);
+    expect(v.getAttribute('src')).toBeNull();
+
+    const other = makeWindow();
+    installAutoplayBlocker(other.win, opts);
+    const v2 = makeVideo(other.win);
+    setRect(v2, VIDEO_RECT);
+    v2.src = 'blob:held';
+    click(other.win, other.win.document.body, 500, 500);
+    expect(other.playCalls).toEqual([]);
+    expect(v2.getAttribute('src')).toBeNull();
+  });
+
+  it.each(['Enter', ' '])('%s starts via the overlay without X calling play', (keyName) => {
+    const { win, playCalls } = makeWindow();
+    installAutoplayBlocker(win, opts);
+    const v = makeVideo(win);
+    setRect(v, VIDEO_RECT);
+    v.src = 'https://video.twimg.com/tweet_video/test.mp4';
+    const button = win.document.querySelector('[data-testid="bobox-play-video"]')!;
+    key(win, keyName, button);
+    expect(playCalls).toEqual([v]);
+    expect(v.getAttribute('src')).toContain('test.mp4');
+    expect(button.isConnected).toBe(false);
+  });
+
+  it('mounts the overlay for a detached video on insertion and cleans up on removal', async () => {
+    const { win } = makeWindow();
+    installAutoplayBlocker(win, opts);
+    const host = win.document.createElement('div');
+    host.dataset.testid = 'videoComponent';
+    win.document.body.append(host);
+    const v = win.document.createElement('video');
+    v.src = 'blob:held';
+    host.append(v);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(host.querySelector('[data-testid="bobox-play-video"]')).not.toBeNull();
+    v.remove();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(host.querySelector('[data-testid="bobox-play-video"]')).toBeNull();
+  });
+
+  it('removes the overlay on source removal and when disabled', () => {
+    const { win } = makeWindow();
+    const blocker = installAutoplayBlocker(win, opts);
+    const v = makeVideo(win);
+    v.src = 'blob:held';
+    v.removeAttribute('src');
+    expect(win.document.querySelector('[data-testid="bobox-play-video"]')).toBeNull();
+    v.src = 'blob:next';
+    blocker.setEnabled(false);
+    expect(win.document.querySelector('[data-testid="bobox-play-video"]')).toBeNull();
+    expect(v.getAttribute('src')).toBe('blob:next');
   });
 
   it('gesture older than GESTURE_WINDOW_MS blocked', async () => {
