@@ -24,8 +24,19 @@ function XAutoplayIcon({ className }: { className?: string }) {
   );
 }
 
+function ImagePreviewIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true" className={className}>
+      <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.8" />
+      <circle cx="8" cy="8" r="1.5" fill="currentColor" />
+      <path d="m4 17 5-5 4 4 3-3 4 4" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 const toolIcons: Record<ToolId, ComponentType<{ className?: string }>> = {
   'x-autoplay': XAutoplayIcon,
+  'github-pr-image-preview': ImagePreviewIcon,
 };
 
 function ToolCard({ tool }: { tool: ToolDefinition }) {
