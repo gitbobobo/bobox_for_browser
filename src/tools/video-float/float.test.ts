@@ -239,6 +239,25 @@ describe('video float', () => {
     expect(t.button()!.style.display).toBe('flex');
   });
 
+  it('discovers shadow roots attached lazily to existing hosts', async () => {
+    const t = setup();
+    t.floater.setEnabled(true);
+    t.video.remove();
+    await flush();
+    const host = t.doc.createElement('div');
+    t.doc.body.append(host);
+    await flush();
+    // attachShadow on an already-attached host emits no childList mutation;
+    // only the hover-triggered rescan can find the root.
+    const shadow = host.attachShadow({ mode: 'open' });
+    const sv = t.doc.createElement('video');
+    shadow.append(sv);
+    vi.spyOn(sv, 'getBoundingClientRect').mockReturnValue(fakeRect(100, 100, 640, 360));
+    await flush();
+    t.move(400, 280);
+    expect(t.button()!.style.display).toBe('flex');
+  });
+
   it('does not close a picture-in-picture window it does not own', () => {
     const t = setup();
     t.floater.setEnabled(true);

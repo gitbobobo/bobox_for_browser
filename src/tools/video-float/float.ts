@@ -17,6 +17,7 @@ const MIN_RECT_W = 240;
 const MIN_RECT_H = 135;
 const CONTROLS_HIDE_MS = 2500;
 const TOAST_MS = 2000;
+const ROOT_SCAN_MS = 500;
 const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 type IconPart = readonly [d: string, stroke?: boolean];
@@ -130,11 +131,26 @@ export function installVideoFloat(win: Win) {
   // Players can hide <video> inside open shadow roots; querySelectorAll does
   // not descend into them, so every discovered root gets scanned and observed
   // on its own. Closed roots stay out of reach by design.
+  const watchedRoots = new Set<ParentNode>();
   const watchRoot = (root: ParentNode) => {
+    if (watchedRoots.has(root)) return;
+    watchedRoots.add(root);
     if (observing) observer.observe(root, { childList: true, subtree: true });
     for (const v of root.querySelectorAll('video')) videos.add(v);
     for (const el of root.querySelectorAll('*')) {
       if (el.shadowRoot) watchRoot(el.shadowRoot);
+    }
+  };
+  // attachShadow() emits no mutation (and page prototypes are out of reach
+  // from this isolated world), so a root attached lazily to an existing host
+  // stays invisible until someone looks. Discovery only matters while the
+  // user hovers, so this runs throttled from onPointerMove, not on a timer.
+  let lastRootScan = 0;
+  const scanShadowRoots = () => {
+    for (const root of watchedRoots) {
+      for (const el of root.querySelectorAll('*')) {
+        if (el.shadowRoot) watchRoot(el.shadowRoot);
+      }
     }
   };
   const addVideos = (node: Node) => {
@@ -167,6 +183,7 @@ export function installVideoFloat(win: Win) {
   const stopObserving = () => {
     observer.disconnect();
     observing = false;
+    watchedRoots.clear();
     videos.clear();
   };
 
@@ -598,6 +615,11 @@ export function installVideoFloat(win: Win) {
   const onPointerMove = (e: PointerEvent) => {
     if (!enabled || !supported) return;
     lastPoint = { x: e.clientX, y: e.clientY };
+    const now = Date.now();
+    if (!videoAt(e.clientX, e.clientY) && now - lastRootScan >= ROOT_SCAN_MS) {
+      lastRootScan = now;
+      scanShadowRoots();
+    }
     updateButton();
   };
   const onScroll = () => updateButton();
