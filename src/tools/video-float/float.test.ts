@@ -298,6 +298,31 @@ describe('video float', () => {
     expect(t.button()!.style.display).toBe('flex');
   });
 
+  it('discovers a lazy shadow root layered over a tracked video', async () => {
+    const t = setup();
+    t.floater.setEnabled(true);
+    const host = t.doc.createElement('div');
+    t.doc.body.append(host);
+    await flush();
+    // Host already in the DOM; attachShadow emits no mutation, and the
+    // pointer still hits the tracked video, so only the throttled rescan
+    // finds the new root.
+    const shadow = host.attachShadow({ mode: 'open' });
+    const sv = t.doc.createElement('video');
+    shadow.append(sv);
+    vi.spyOn(sv, 'getBoundingClientRect').mockReturnValue(fakeRect(100, 100, 640, 360));
+    Object.defineProperty(t.doc, 'elementsFromPoint', {
+      value: () => [sv],
+      configurable: true,
+    });
+    await flush();
+    t.move(400, 280);
+    t.button()!.click();
+    await flush();
+    expect(sv.ownerDocument).toBe(t.docPip!.window!.document);
+    expect(t.video.ownerDocument).toBe(t.doc);
+  });
+
   it('does not close a picture-in-picture window it does not own', () => {
     const t = setup();
     t.floater.setEnabled(true);

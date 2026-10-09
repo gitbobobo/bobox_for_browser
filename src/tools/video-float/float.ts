@@ -159,8 +159,9 @@ export function installVideoFloat(win: Win) {
   };
   // attachShadow() emits no mutation (and page prototypes are out of reach
   // from this isolated world), so a root attached lazily to an existing host
-  // stays invisible until someone looks. Discovery only matters while the
-  // user hovers, so this runs throttled from onPointerMove, not on a timer.
+  // stays invisible until someone looks — including a new root layered on
+  // top of a video we already track. Discovery only matters while the user
+  // hovers, so this runs throttled from onPointerMove, not on a timer.
   let lastRootScan = 0;
   const scanShadowRoots = () => {
     let pruned = false;
@@ -650,7 +651,7 @@ export function installVideoFloat(win: Win) {
     if (!enabled || !supported) return;
     lastPoint = { x: e.clientX, y: e.clientY };
     const now = Date.now();
-    if (!videoAt(e.clientX, e.clientY) && now - lastRootScan >= ROOT_SCAN_MS) {
+    if (now - lastRootScan >= ROOT_SCAN_MS) {
       lastRootScan = now;
       scanShadowRoots();
     }
