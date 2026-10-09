@@ -128,7 +128,11 @@ export function installVideoFloat(win: Win) {
       if (!floatable(v)) continue;
       const r = v.getBoundingClientRect();
       if (r.width < MIN_RECT_W || r.height < MIN_RECT_H) continue;
-      if (inRect(r, x, y)) (hits ??= []).push(v);
+      // visibility:hidden keeps the layout rect but renders nothing; a
+      // hidden preload/ad video is not something the user sees or wants.
+      if (inRect(r, x, y) && win.getComputedStyle(v).visibility === 'visible') {
+        (hits ??= []).push(v);
+      }
     }
     if (!hits) return null;
     if (hits.length === 1) return hits[0]!;
