@@ -101,6 +101,10 @@ export function installVideoFloat(win: Win) {
   let button: HTMLButtonElement | null = null;
   let toastEl: HTMLElement | null = null;
   let session: PipSession | null = null;
+  // The native-PiP counterpart of `session`: the video we pushed into
+  // requestPictureInPicture, cleared when it leaves pip. Only sessions we
+  // opened are closed by us.
+  let nativeSession: HTMLVideoElement | null = null;
   // Bumped by every open/close so an in-flight requestWindow resolving late
   // can tell its window is already superseded.
   let openSeq = 0;
@@ -353,6 +357,11 @@ export function installVideoFloat(win: Win) {
     s.video.controls = s.hadControls;
   };
 
+  const clearNative = (e: Event) => {
+    e.currentTarget?.removeEventListener('leavepictureinpicture', clearNative);
+    nativeSession = null;
+  };
+
   // Only closes sessions this tool opened. Toggle-off/destroy must not kill a
   // PiP window the page or the user opened on their own.
   const closeCurrent = () => {
@@ -364,6 +373,17 @@ export function installVideoFloat(win: Win) {
       try {
         s.pipWin.close();
       } catch {}
+    }
+    const nv = nativeSession;
+    nativeSession = null;
+    if (nv) {
+      nv.removeEventListener('leavepictureinpicture', clearNative);
+      // If the page/user swapped in their own pip since, it is not ours.
+      if (doc.pictureInPictureElement === nv) {
+        try {
+          void doc.exitPictureInPicture?.().catch(() => {});
+        } catch {}
+      }
     }
   };
 
@@ -653,7 +673,12 @@ export function installVideoFloat(win: Win) {
     }
     try {
       await video.requestPictureInPicture();
-      if (seq !== openSeq) void doc.exitPictureInPicture?.().catch(() => {});
+      if (seq !== openSeq || !enabled || destroyed) {
+        void doc.exitPictureInPicture?.().catch(() => {});
+        return;
+      }
+      nativeSession = video;
+      video.addEventListener('leavepictureinpicture', clearNative);
     } catch {
       showToast(video);
     }

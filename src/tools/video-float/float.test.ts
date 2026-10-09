@@ -325,6 +325,48 @@ describe('video float', () => {
     expect(t.video.ownerDocument).toBe(t.doc);
   });
 
+  it('exits a native pip it opened when the tool is disabled', async () => {
+    const t = setup({ docPip: false, nativePip: true });
+    t.floater.setEnabled(true);
+    t.move(400, 280);
+    t.button()!.click();
+    await flush();
+    const exitSpy = vi.fn(async () => {});
+    Object.defineProperty(t.doc, 'exitPictureInPicture', {
+      value: exitSpy,
+      configurable: true,
+    });
+    Object.defineProperty(t.doc, 'pictureInPictureElement', {
+      value: t.video,
+      configurable: true,
+    });
+    t.floater.setEnabled(false);
+    expect(exitSpy).toHaveBeenCalledOnce();
+  });
+
+  it('does not exit a native pip that is no longer ours', async () => {
+    const t = setup({ docPip: false, nativePip: true });
+    t.floater.setEnabled(true);
+    t.move(400, 280);
+    t.button()!.click();
+    await flush();
+    const exitSpy = vi.fn(async () => {});
+    Object.defineProperty(t.doc, 'exitPictureInPicture', {
+      value: exitSpy,
+      configurable: true,
+    });
+    // The user closed our pip, then opened their own on another video.
+    t.video.dispatchEvent(new t.win.Event('leavepictureinpicture'));
+    const other = t.doc.createElement('video');
+    Object.defineProperty(t.doc, 'pictureInPictureElement', {
+      value: other,
+      configurable: true,
+    });
+    t.floater.setEnabled(false);
+    t.floater.destroy();
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
   it('does not close a picture-in-picture window it does not own', () => {
     const t = setup();
     t.floater.setEnabled(true);
