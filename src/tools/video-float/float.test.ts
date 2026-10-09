@@ -258,6 +258,46 @@ describe('video float', () => {
     expect(t.button()!.style.display).toBe('flex');
   });
 
+  it('picks the frontmost video when candidates overlap', async () => {
+    const t = setup();
+    const bg = t.doc.createElement('video');
+    t.doc.body.append(bg);
+    await flush();
+    vi.spyOn(bg, 'getBoundingClientRect').mockReturnValue(fakeRect(100, 100, 640, 360));
+    // Both rects contain the point; bg paints on top.
+    Object.defineProperty(t.doc, 'elementsFromPoint', {
+      value: () => [bg],
+      configurable: true,
+    });
+    t.floater.setEnabled(true);
+    t.move(400, 280);
+    t.button()!.click();
+    await flush();
+    expect(bg.ownerDocument).toBe(t.docPip!.window!.document);
+    expect(t.video.ownerDocument).toBe(t.doc);
+  });
+
+  it('re-discovers a shadow root pruned while its host was detached', async () => {
+    const t = setup();
+    t.floater.setEnabled(true);
+    t.video.remove();
+    await flush();
+    const host = t.doc.createElement('div');
+    t.doc.body.append(host);
+    const shadow = host.attachShadow({ mode: 'open' });
+    const sv = t.doc.createElement('video');
+    shadow.append(sv);
+    vi.spyOn(sv, 'getBoundingClientRect').mockReturnValue(fakeRect(100, 100, 640, 360));
+    await flush();
+    host.remove();
+    await flush();
+    t.move(10, 10); // hover miss: rescan prunes the detached root
+    t.doc.body.append(host);
+    await flush();
+    t.move(400, 280);
+    expect(t.button()!.style.display).toBe('flex');
+  });
+
   it('does not close a picture-in-picture window it does not own', () => {
     const t = setup();
     t.floater.setEnabled(true);

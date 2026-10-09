@@ -115,6 +115,7 @@ export function installVideoFloat(win: Win) {
     (docPip !== undefined || !v.disablePictureInPicture);
 
   const videoAt = (x: number, y: number): HTMLVideoElement | null => {
+    let hits: HTMLVideoElement[] | null = null;
     for (const v of videos) {
       if (!v.isConnected || v.ownerDocument !== doc) {
         videos.delete(v);
@@ -123,9 +124,24 @@ export function installVideoFloat(win: Win) {
       if (!floatable(v)) continue;
       const r = v.getBoundingClientRect();
       if (r.width < MIN_RECT_W || r.height < MIN_RECT_H) continue;
-      if (inRect(r, x, y)) return v;
+      if (inRect(r, x, y)) (hits ??= []).push(v);
     }
-    return null;
+    if (!hits) return null;
+    if (hits.length === 1) return hits[0]!;
+    // Overlapping players (a foreground player over a background preload)
+    // all contain the point; the painted stack says which one the user is
+    // actually looking at. Elements of the front player's subtree come first.
+    const stack = doc.elementsFromPoint?.(x, y) ?? [];
+    let best: HTMLVideoElement | null = null;
+    let bestIdx = Infinity;
+    for (const v of hits) {
+      const i = stack.findIndex((e) => e === v || e.contains(v));
+      if (i !== -1 && i < bestIdx) {
+        bestIdx = i;
+        best = v;
+      }
+    }
+    return best ?? hits[0]!;
   };
 
   // Players can hide <video> inside open shadow roots; querySelectorAll does
@@ -147,10 +163,27 @@ export function installVideoFloat(win: Win) {
   // user hovers, so this runs throttled from onPointerMove, not on a timer.
   let lastRootScan = 0;
   const scanShadowRoots = () => {
+    let pruned = false;
     for (const root of watchedRoots) {
+      if (root instanceof win.ShadowRoot && !root.host.isConnected) {
+        watchedRoots.delete(root);
+        for (const v of root.querySelectorAll('video')) videos.delete(v);
+        pruned = true;
+        continue;
+      }
       for (const el of root.querySelectorAll('*')) {
         if (el.shadowRoot) watchRoot(el.shadowRoot);
       }
+    }
+    // disconnect() is the only way to drop a detached observation target;
+    // replay pending records so live roots don't lose queued mutations.
+    if (pruned && observing) {
+      const pending = observer.takeRecords();
+      observer.disconnect();
+      for (const root of watchedRoots) {
+        observer.observe(root, { childList: true, subtree: true });
+      }
+      handleRecords(pending);
     }
   };
   const addVideos = (node: Node) => {
@@ -169,12 +202,13 @@ export function installVideoFloat(win: Win) {
       for (const v of node.querySelectorAll('video')) videos.delete(v);
     }
   };
-  const observer = new win.MutationObserver((records) => {
+  const handleRecords = (records: MutationRecord[]) => {
     for (const r of records) {
       for (const n of r.addedNodes) addVideos(n);
       for (const n of r.removedNodes) dropVideos(n);
     }
-  });
+  };
+  const observer = new win.MutationObserver(handleRecords);
   const startObserving = () => {
     if (observing) return;
     observing = true;
