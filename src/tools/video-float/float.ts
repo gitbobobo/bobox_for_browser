@@ -130,12 +130,24 @@ export function installVideoFloat(win: Win) {
     if (hits.length === 1) return hits[0]!;
     // Overlapping players (a foreground player over a background preload)
     // all contain the point; the painted stack says which one the user is
-    // actually looking at. Elements of the front player's subtree come first.
+    // actually looking at. Elements of the front player's subtree come
+    // first. For videos inside shadow roots the stack may surface the host
+    // or a shadow-internal overlay, so candidates match via their host chain
+    // as well as contains().
     const stack = doc.elementsFromPoint?.(x, y) ?? [];
     let best: HTMLVideoElement | null = null;
     let bestIdx = Infinity;
     for (const v of hits) {
-      const i = stack.findIndex((e) => e === v || e.contains(v));
+      const hosts: Element[] = [];
+      let n: Node = v;
+      let r = n.getRootNode();
+      while (r instanceof win.ShadowRoot) {
+        const host = r.host;
+        hosts.push(host);
+        n = host;
+        r = n.getRootNode();
+      }
+      const i = stack.findIndex((e) => e === v || hosts.includes(e) || e.contains(v));
       if (i !== -1 && i < bestIdx) {
         bestIdx = i;
         best = v;

@@ -311,8 +311,10 @@ describe('video float', () => {
     const sv = t.doc.createElement('video');
     shadow.append(sv);
     vi.spyOn(sv, 'getBoundingClientRect').mockReturnValue(fakeRect(100, 100, 640, 360));
+    // A real document-level hit test surfaces the shadow host, not the
+    // inner video — the host chain is what ties sv to the painted stack.
     Object.defineProperty(t.doc, 'elementsFromPoint', {
-      value: () => [sv],
+      value: () => [host],
       configurable: true,
     });
     await flush();
