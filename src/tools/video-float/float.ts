@@ -198,14 +198,7 @@ export function installVideoFloat(win: Win) {
     }
     // disconnect() is the only way to drop a detached observation target;
     // replay pending records so live roots don't lose queued mutations.
-    if (pruned && observing) {
-      const pending = observer.takeRecords();
-      observer.disconnect();
-      for (const root of watchedRoots) {
-        observer.observe(root, { childList: true, subtree: true });
-      }
-      handleRecords(pending);
-    }
+    if (pruned && observing) reobserve();
   };
   const addVideos = (node: Node) => {
     if (node instanceof win.HTMLVideoElement) videos.add(node);
@@ -223,13 +216,46 @@ export function installVideoFloat(win: Win) {
       for (const v of node.querySelectorAll('video')) videos.delete(v);
     }
   };
+  // A watched shadow root removed along with its host stops mattering
+  // immediately — drop it (and any roots nested inside) here rather than
+  // letting it pile up until the next hover rescan.
+  const dropRoot = (root: ShadowRoot): boolean => {
+    if (!watchedRoots.delete(root)) return false;
+    for (const v of root.querySelectorAll('video')) videos.delete(v);
+    for (const el of root.querySelectorAll('*')) {
+      if (el.shadowRoot) dropRoot(el.shadowRoot);
+    }
+    return true;
+  };
+  const dropRootsUnder = (node: Node): boolean => {
+    if (!(node instanceof win.Element)) return false;
+    let dropped = false;
+    if (node.shadowRoot) dropped = dropRoot(node.shadowRoot);
+    for (const el of node.querySelectorAll('*')) {
+      if (el.shadowRoot) dropped = dropRoot(el.shadowRoot) || dropped;
+    }
+    return dropped;
+  };
   const handleRecords = (records: MutationRecord[]) => {
+    let detached = false;
     for (const r of records) {
       for (const n of r.addedNodes) addVideos(n);
-      for (const n of r.removedNodes) dropVideos(n);
+      for (const n of r.removedNodes) {
+        dropVideos(n);
+        detached = dropRootsUnder(n) || detached;
+      }
     }
+    if (detached) reobserve();
   };
   const observer = new win.MutationObserver(handleRecords);
+  const reobserve = () => {
+    const pending = observer.takeRecords();
+    observer.disconnect();
+    for (const root of watchedRoots) {
+      observer.observe(root, { childList: true, subtree: true });
+    }
+    handleRecords(pending);
+  };
   const startObserving = () => {
     if (observing) return;
     observing = true;
