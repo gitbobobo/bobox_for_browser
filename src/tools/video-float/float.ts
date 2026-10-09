@@ -118,6 +118,16 @@ export function installVideoFloat(win: Win) {
     v !== doc.pictureInPictureElement &&
     (docPip !== undefined || !v.disablePictureInPicture);
 
+  const isShown = (v: HTMLVideoElement): boolean => {
+    if (typeof v.checkVisibility === 'function') {
+      try {
+        return v.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+      } catch {}
+    }
+    const cs = win.getComputedStyle(v);
+    return cs.visibility === 'visible' && cs.opacity !== '0';
+  };
+
   const videoAt = (x: number, y: number): HTMLVideoElement | null => {
     let hits: HTMLVideoElement[] | null = null;
     for (const v of videos) {
@@ -128,11 +138,11 @@ export function installVideoFloat(win: Win) {
       if (!floatable(v)) continue;
       const r = v.getBoundingClientRect();
       if (r.width < MIN_RECT_W || r.height < MIN_RECT_H) continue;
-      // visibility:hidden keeps the layout rect but renders nothing; a
-      // hidden preload/ad video is not something the user sees or wants.
-      if (inRect(r, x, y) && win.getComputedStyle(v).visibility === 'visible') {
-        (hits ??= []).push(v);
-      }
+      // Hidden preload/ad videos keep their layout rect but paint nothing;
+      // they are not something the user sees or wants to float. Opacity is
+      // not inherited, so only checkVisibility covers ancestors with
+      // opacity:0 — fall back to the video's own computed style.
+      if (inRect(r, x, y) && isShown(v)) (hits ??= []).push(v);
     }
     if (!hits) return null;
     if (hits.length === 1) return hits[0]!;

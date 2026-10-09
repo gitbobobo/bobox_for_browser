@@ -119,6 +119,13 @@ describe('video float', () => {
     expect(t.button()).toBeNull();
   });
 
+  it('ignores fully transparent videos', () => {
+    const t = setup({ videoStyle: 'opacity: 0' });
+    t.floater.setEnabled(true);
+    t.move(400, 280);
+    expect(t.button()).toBeNull();
+  });
+
   it('ignores videos below the minimum size', () => {
     const t = setup();
     vi.spyOn(t.video, 'getBoundingClientRect').mockReturnValue(fakeRect(100, 100, 200, 100));
