@@ -212,6 +212,18 @@ describe('video float', () => {
     expect(t.placeholder()).toBeNull();
   });
 
+  it('falls back to native pip when the document pip request rejects', async () => {
+    const t = setup({ nativePip: true });
+    t.docPip!.requestWindow.mockRejectedValueOnce(new Error('denied'));
+    const requestPip = t.win.HTMLVideoElement.prototype.requestPictureInPicture;
+    t.floater.setEnabled(true);
+    t.move(400, 280);
+    t.button()!.click();
+    await flush();
+    expect(requestPip).toHaveBeenCalledOnce();
+    expect(t.toast()).toBeNull();
+  });
+
   it('falls back to native picture-in-picture without doc-pip', async () => {
     const t = setup({ docPip: false, nativePip: true });
     const requestPip = t.win.HTMLVideoElement.prototype.requestPictureInPicture;

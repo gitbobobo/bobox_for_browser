@@ -220,7 +220,9 @@ export function installVideoFloat(win: Win) {
   // immediately — drop it (and any roots nested inside) here rather than
   // letting it pile up until the next hover rescan.
   const dropRoot = (root: ShadowRoot): boolean => {
-    if (!watchedRoots.delete(root)) return false;
+    // Records are replayed after the DOM settles, so a host reparented in
+    // the same batch reports connected — keep its root watched.
+    if (root.host.isConnected || !watchedRoots.delete(root)) return false;
     for (const v of root.querySelectorAll('video')) videos.delete(v);
     for (const el of root.querySelectorAll('*')) {
       if (el.shadowRoot) dropRoot(el.shadowRoot);
@@ -696,9 +698,14 @@ export function installVideoFloat(win: Win) {
         const s = buildPipWindow(video, pipWin);
         session = s;
         pipWin.addEventListener('pagehide', () => finishSession(s), { once: true });
+        return;
       } catch {
-        showToast(video);
+        // Document PiP can be present yet refuse (policy/preference);
+        // native video PiP may still work — fall through.
       }
+    }
+    if (!nativePipSupported || video.disablePictureInPicture) {
+      showToast(video);
       return;
     }
     try {
