@@ -34,9 +34,19 @@ function ImagePreviewIcon({ className }: { className?: string }) {
   );
 }
 
+function VideoFloatIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true" className={className}>
+      <rect x="3" y="4" width="18" height="16" rx="3" stroke="currentColor" strokeWidth="1.8" />
+      <rect x="12.5" y="12.5" width="6" height="4.5" rx="1" fill="currentColor" />
+    </svg>
+  );
+}
+
 const toolIcons: Record<ToolId, ComponentType<{ className?: string }>> = {
   'x-autoplay': XAutoplayIcon,
   'github-pr-image-preview': ImagePreviewIcon,
+  'video-float': VideoFloatIcon,
 };
 
 function ToolCard({ tool }: { tool: ToolDefinition }) {

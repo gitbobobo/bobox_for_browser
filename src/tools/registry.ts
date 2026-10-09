@@ -1,8 +1,9 @@
 import type { WxtStorageItem } from 'wxt/utils/storage';
 import { xAutoplayEnabled } from './x-autoplay/settings';
 import { githubPrImagePreviewEnabled } from './github-pr-image-preview/settings';
+import { videoFloatEnabled } from './video-float/settings';
 
-export type ToolId = 'x-autoplay' | 'github-pr-image-preview';
+export type ToolId = 'x-autoplay' | 'github-pr-image-preview' | 'video-float';
 
 export interface ToolDefinition {
   id: ToolId;
@@ -26,5 +27,12 @@ export const tools: readonly ToolDefinition[] = [
     description: '点击 PR 描述中的图片，在当前页面查看大图。',
     sites: ['github.com'],
     enabled: githubPrImagePreviewEnabled,
+  },
+  {
+    id: 'video-float',
+    name: '视频悬浮窗',
+    description: '悬停视频出现悬浮窗按钮，点击后视频在置顶小窗播放，切到其他应用也能继续看。',
+    sites: ['所有网站'],
+    enabled: videoFloatEnabled,
   },
 ];
