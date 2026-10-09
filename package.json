@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "verify:x": "wxt build && node scripts/verify-x-autoplay.mjs",
+    "verify:float": "wxt build && node scripts/verify-video-float.mjs",
     "postinstall": "wxt prepare"
   },
   "dependencies": {
