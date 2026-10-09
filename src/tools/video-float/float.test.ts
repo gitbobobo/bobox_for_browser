@@ -223,6 +223,32 @@ describe('video float', () => {
     expect(t.button()).toBeNull();
   });
 
+  it('discovers videos inside open shadow roots', async () => {
+    const t = setup();
+    t.floater.setEnabled(true);
+    t.video.remove();
+    await flush();
+    const host = t.doc.createElement('div');
+    t.doc.body.append(host);
+    const shadow = host.attachShadow({ mode: 'open' });
+    const sv = t.doc.createElement('video');
+    shadow.append(sv);
+    vi.spyOn(sv, 'getBoundingClientRect').mockReturnValue(fakeRect(100, 100, 640, 360));
+    await flush();
+    t.move(400, 280);
+    expect(t.button()!.style.display).toBe('flex');
+  });
+
+  it('does not close a picture-in-picture window it does not own', () => {
+    const t = setup();
+    t.floater.setEnabled(true);
+    const foreign = { close: vi.fn() };
+    t.docPip!.window = foreign as unknown as Window;
+    t.floater.setEnabled(false);
+    t.floater.destroy();
+    expect(foreign.close).not.toHaveBeenCalled();
+  });
+
   it('destroy closes the session, removes the button and stops reacting', async () => {
     const t = setup();
     t.floater.setEnabled(true);

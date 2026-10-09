@@ -127,10 +127,24 @@ export function installVideoFloat(win: Win) {
     return null;
   };
 
+  // Players can hide <video> inside open shadow roots; querySelectorAll does
+  // not descend into them, so every discovered root gets scanned and observed
+  // on its own. Closed roots stay out of reach by design.
+  const watchRoot = (root: ParentNode) => {
+    if (observing) observer.observe(root, { childList: true, subtree: true });
+    for (const v of root.querySelectorAll('video')) videos.add(v);
+    for (const el of root.querySelectorAll('*')) {
+      if (el.shadowRoot) watchRoot(el.shadowRoot);
+    }
+  };
   const addVideos = (node: Node) => {
     if (node instanceof win.HTMLVideoElement) videos.add(node);
     else if (node instanceof win.Element) {
       for (const v of node.querySelectorAll('video')) videos.add(v);
+      if (node.shadowRoot) watchRoot(node.shadowRoot);
+      for (const el of node.querySelectorAll('*')) {
+        if (el.shadowRoot) watchRoot(el.shadowRoot);
+      }
     }
   };
   const dropVideos = (node: Node) => {
@@ -148,8 +162,7 @@ export function installVideoFloat(win: Win) {
   const startObserving = () => {
     if (observing) return;
     observing = true;
-    for (const v of doc.querySelectorAll('video')) videos.add(v);
-    observer.observe(doc.documentElement ?? doc, { childList: true, subtree: true });
+    watchRoot(doc);
   };
   const stopObserving = () => {
     observer.disconnect();
@@ -276,6 +289,8 @@ export function installVideoFloat(win: Win) {
     s.video.controls = s.hadControls;
   };
 
+  // Only closes sessions this tool opened. Toggle-off/destroy must not kill a
+  // PiP window the page or the user opened on their own.
   const closeCurrent = () => {
     openSeq += 1;
     const s = session;
@@ -286,13 +301,6 @@ export function installVideoFloat(win: Win) {
         s.pipWin.close();
       } catch {}
     }
-    // A pip window not owned by this tool still blocks the next requestWindow.
-    try {
-      docPip?.window?.close();
-    } catch {}
-    try {
-      void doc.exitPictureInPicture?.().catch(() => {});
-    } catch {}
   };
 
   function buildPipWindow(video: HTMLVideoElement, pipWin: Window): PipSession {
@@ -545,6 +553,14 @@ export function installVideoFloat(win: Win) {
     closeCurrent();
     const seq = openSeq;
     hideButton();
+    // A foreign PiP window still blocks the request below; the user just asked
+    // to float this video, so taking over the slot matches their intent.
+    try {
+      docPip?.window?.close();
+    } catch {}
+    try {
+      void doc.exitPictureInPicture?.().catch(() => {});
+    } catch {}
     if (docPip) {
       const r = video.getBoundingClientRect();
       const aspect =
